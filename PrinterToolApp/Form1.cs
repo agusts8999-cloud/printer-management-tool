@@ -37,6 +37,9 @@ namespace PrinterToolApp
         /// <summary>
         /// Load daftar printer yang terinstall (hanya target printer)
         /// </summary>
+        /// <summary>
+        /// Load daftar printer yang terinstall (hanya target printer)
+        /// </summary>
         private void LoadPrinters()
         {
             try
@@ -59,12 +62,76 @@ namespace PrinterToolApp
                     labelPrinterCount.Text = "Printer tidak ditemukan!";
                     labelPrinterCount.ForeColor = System.Drawing.Color.Red;
                     
-                    ShowDriverInstallInstructions();
+                    DialogResult result = MessageBox.Show(
+                        $"Printer '{PrinterManager.TARGET_PRINTER_NAME}' tidak ditemukan.\n\n" +
+                        "Apakah Anda ingin menginstall driver printer sekarang?",
+                        "Driver Tidak Ditemukan",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+
+                    if (result == DialogResult.Yes)
+                    {
+                        InstallDriver();
+                    }
                 }
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Error loading printers: {ex.Message}", "Error", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void InstallDriver()
+        {
+            try
+            {
+                // Resource names can be tricky. Default namespace + folder (if any) + filename
+                // Since file is in root of project, it should be PrinterToolApp.4barcode.driver.2024.11.14.1.exe
+                // But sometimes underscores are used for numbers or special chars.
+                
+                string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "4barcode.driver.2024.11.14.1.exe");
+                System.IO.Stream stream = null;
+                string foundResourceName = null;
+
+                // Get all resources
+                string[] resources = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceNames();
+                
+                // Find resource that ends with our filename
+                foreach (string res in resources)
+                {
+                    if (res.EndsWith("4barcode.driver.2024.11.14.1.exe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foundResourceName = res;
+                        break;
+                    }
+                }
+
+                if (foundResourceName != null)
+                {
+                    stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(foundResourceName);
+                }
+
+                if (stream == null)
+                {
+                    // List all resources to debug
+                    string availableResources = string.Join("\n", resources);
+                    throw new Exception($"Embedded driver resource not found.\nAvailable resources:\n{availableResources}");
+                }
+
+                using (stream)
+                {
+                    using (System.IO.FileStream fileStream = new System.IO.FileStream(tempPath, System.IO.FileMode.Create))
+                    {
+                        stream.CopyTo(fileStream);
+                    }
+                }
+
+                System.Diagnostics.Process.Start(tempPath);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Gagal mengekstrak atau menjalankan installer driver:\n{ex.Message}", "Error", 
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -132,6 +199,10 @@ namespace PrinterToolApp
                 }
 
                 labelPaperSizeCount.Text = $"Total: {paperSizes.Count} paper size(s)";
+                
+                // Reset UI
+                btnEditPaperSize.Enabled = false;
+                btnDeletePaperSize.Visible = false;
             }
             catch (Exception ex)
             {
@@ -237,58 +308,6 @@ namespace PrinterToolApp
             }
         }
 
-        private void btnScanRegistry_Click(object sender, EventArgs e)
-        {
-            if (listBoxPrinters.SelectedItem == null)
-            {
-                MessageBox.Show("Silakan pilih printer terlebih dahulu.", "Informasi",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-
-            try
-            {
-                string printerName = listBoxPrinters.SelectedItem.ToString();
-                
-                // Scan registry locations
-                string scanResult = RegistryScanner.ScanPrinterRegistryLocations(printerName);
-                
-                // Get driver name
-                string driverName = RegistryScanner.GetPrinterDriverName(printerName);
-                if (!string.IsNullOrEmpty(driverName))
-                {
-                    scanResult += "\n" + RegistryScanner.ScanDriverSpecificLocations(driverName);
-                }
-                
-                // Show results
-                Form scanForm = new Form
-                {
-                    Text = "Registry Scan Results",
-                    Width = 800,
-                    Height = 600,
-                    StartPosition = FormStartPosition.CenterParent
-                };
-                
-                TextBox resultBox = new TextBox
-                {
-                    Multiline = true,
-                    ScrollBars = ScrollBars.Both,
-                    Dock = DockStyle.Fill,
-                    Font = new System.Drawing.Font("Consolas", 9),
-                    Text = scanResult,
-                    WordWrap = false
-                };
-                
-                scanForm.Controls.Add(resultBox);
-                scanForm.ShowDialog();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error scanning registry: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
         private void btnShowDevMode_Click(object sender, EventArgs e)
         {
             if (listBoxPrinters.SelectedItem == null)
@@ -383,6 +402,35 @@ namespace PrinterToolApp
             }
         }
 
+        private void listBoxPaperSizes_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (listBoxPaperSizes.SelectedItem == null)
+            {
+                btnEditPaperSize.Enabled = false;
+                btnDeletePaperSize.Visible = false;
+                return;
+            }
+
+            // Enable edit button
+            btnEditPaperSize.Enabled = true;
+            
+            // Show delete button
+            btnDeletePaperSize.Visible = true;
+
+            // Set tag for delete button
+            string selectedPaper = listBoxPaperSizes.SelectedItem.ToString();
+            
+            // Extract paper name for Tag (assuming format "Name" or "Name (details)")
+            string paperName = selectedPaper;
+            int parenIndex = selectedPaper.LastIndexOf('(');
+            if (parenIndex > 0)
+            {
+                paperName = selectedPaper.Substring(0, parenIndex).Trim();
+            }
+            
+            btnDeletePaperSize.Tag = paperName;
+        }
+
         private void btnUpdatePaperSize_Click(object sender, EventArgs e)
         {
             if (listBoxPrinters.SelectedItem == null)
@@ -458,6 +506,65 @@ namespace PrinterToolApp
                 MessageBox.Show($"Gagal memperbarui ukuran kertas:\n{ex.Message}", "Error", 
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private void btnDeletePaperSize_Click(object sender, EventArgs e)
+        {
+            if (btnDeletePaperSize.Tag == null) return;
+
+            string paperName = btnDeletePaperSize.Tag.ToString();
+            
+            DialogResult result = MessageBox.Show(
+                $"Apakah Anda yakin ingin menghapus ukuran kertas '{paperName}' secara PERMANEN?",
+                "Konfirmasi Hapus",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+
+            if (result == DialogResult.Yes)
+            {
+                try
+                {
+                    bool success = PaperSizeManager.DeletePermanentPaperSize(paperName);
+                    
+                    if (success)
+                    {
+                        MessageBox.Show($"Ukuran kertas '{paperName}' berhasil dihapus!", "Sukses", 
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        
+                        // Refresh list
+                        LoadPaperSizes();
+                        
+                        // Reset UI
+                        groupBoxEditPaperSize.Visible = false;
+                        groupBoxAddPaperSize.Visible = true;
+                        btnDeletePaperSize.Visible = false;
+                    }
+                    else
+                    {
+                        MessageBox.Show("Gagal menghapus ukuran kertas. Pastikan running as Administrator.", "Gagal", 
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error: {ex.Message}", "Error", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void btnAbout_Click(object sender, EventArgs e)
+        {
+            string version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString();
+            string changelog = 
+                $"Printer Management Tool v{version}\n\n" +
+                "Changelog:\n" +
+                "- v1.1.0: Added 'Delete Paper Size' feature\n" +
+                "- v1.1.0: Fixed registry binary structure for 4BARCODE printer\n" +
+                "- v1.1.0: Added permanent registry storage support\n" +
+                "- v1.0.0: Initial release";
+
+            MessageBox.Show(changelog, "About", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void btnCancelEdit_Click(object sender, EventArgs e)

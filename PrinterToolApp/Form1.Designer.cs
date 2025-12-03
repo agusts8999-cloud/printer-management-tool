@@ -35,6 +35,7 @@ namespace PrinterToolApp
             this.groupBoxPaperSizes = new System.Windows.Forms.GroupBox();
             this.labelPaperSizeCount = new System.Windows.Forms.Label();
             this.btnShowDevMode = new System.Windows.Forms.Button();
+            this.btnAbout = new System.Windows.Forms.Button();
             this.btnEditPaperSize = new System.Windows.Forms.Button();
             this.listBoxPaperSizes = new System.Windows.Forms.ListBox();
             this.groupBoxAddPaperSize = new System.Windows.Forms.GroupBox();
@@ -56,6 +57,7 @@ namespace PrinterToolApp
             this.label6 = new System.Windows.Forms.Label();
             this.btnCancelEdit = new System.Windows.Forms.Button();
             this.chkEditPermanent = new System.Windows.Forms.CheckBox();
+            this.btnDeletePaperSize = new System.Windows.Forms.Button();
             this.groupBoxPrinters.SuspendLayout();
             this.groupBoxPaperSizes.SuspendLayout();
             this.groupBoxAddPaperSize.SuspendLayout();
@@ -100,6 +102,17 @@ namespace PrinterToolApp
             this.btnRefresh.Text = "Refresh";
             this.btnRefresh.UseVisualStyleBackColor = true;
             this.btnRefresh.Click += new System.EventHandler(this.btnRefresh_Click);
+            // 
+            // btnAbout
+            // 
+            this.btnAbout.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btnAbout.Location = new System.Drawing.Point(647, 522);
+            this.btnAbout.Name = "btnAbout";
+            this.btnAbout.Size = new System.Drawing.Size(85, 27);
+            this.btnAbout.TabIndex = 10;
+            this.btnAbout.Text = "About";
+            this.btnAbout.UseVisualStyleBackColor = true;
+            this.btnAbout.Click += new System.EventHandler(this.btnAbout_Click);
             // 
             // listBoxPrinters
             // 
@@ -168,12 +181,14 @@ namespace PrinterToolApp
             this.listBoxPaperSizes.Name = "listBoxPaperSizes";
             this.listBoxPaperSizes.Size = new System.Drawing.Size(359, 214);
             this.listBoxPaperSizes.TabIndex = 0;
+            this.listBoxPaperSizes.SelectedIndexChanged += new System.EventHandler(this.listBoxPaperSizes_SelectedIndexChanged);
             // 
             // groupBoxAddPaperSize
             // 
             this.groupBoxAddPaperSize.Controls.Add(this.numHeight);
             this.groupBoxAddPaperSize.Controls.Add(this.numWidth);
             this.groupBoxAddPaperSize.Controls.Add(this.btnAddPaperSize);
+            this.groupBoxAddPaperSize.Controls.Add(this.btnDeletePaperSize);
             this.groupBoxAddPaperSize.Controls.Add(this.chkPermanent);
             this.groupBoxAddPaperSize.Controls.Add(this.label3);
             this.groupBoxAddPaperSize.Controls.Add(this.label2);
@@ -385,6 +400,19 @@ namespace PrinterToolApp
             this.btnCancelEdit.UseVisualStyleBackColor = true;
             this.btnCancelEdit.Click += new System.EventHandler(this.btnCancelEdit_Click);
             // 
+            // btnDeletePaperSize
+            // 
+            this.btnDeletePaperSize.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btnDeletePaperSize.ForeColor = System.Drawing.Color.Red;
+            this.btnDeletePaperSize.Location = new System.Drawing.Point(127, 197);
+            this.btnDeletePaperSize.Name = "btnDeletePaperSize";
+            this.btnDeletePaperSize.Size = new System.Drawing.Size(190, 30);
+            this.btnDeletePaperSize.TabIndex = 9;
+            this.btnDeletePaperSize.Text = "Delete Paper Size";
+            this.btnDeletePaperSize.UseVisualStyleBackColor = true;
+            this.btnDeletePaperSize.Click += new System.EventHandler(this.btnDeletePaperSize_Click);
+            this.btnDeletePaperSize.Visible = false;
+            // 
             // chkEditPermanent
             // 
             this.chkEditPermanent.AutoSize = true;
@@ -440,6 +468,7 @@ namespace PrinterToolApp
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(744, 561);
+            this.Controls.Add(this.btnAbout);
             this.Controls.Add(this.groupBoxEditPaperSize);
             this.Controls.Add(this.groupBoxAddPaperSize);
             this.Controls.Add(this.groupBoxPaperSizes);
@@ -483,6 +512,7 @@ namespace PrinterToolApp
         private System.Windows.Forms.Label labelPrinterCount;
         private System.Windows.Forms.Label labelPaperSizeCount;
         private System.Windows.Forms.Button btnShowDevMode;
+        private System.Windows.Forms.Button btnAbout;
         private System.Windows.Forms.Button btnEditPaperSize;
         private System.Windows.Forms.GroupBox groupBoxEditPaperSize;
         private System.Windows.Forms.NumericUpDown numEditHeight;
@@ -495,5 +525,6 @@ namespace PrinterToolApp
         private System.Windows.Forms.Button btnCancelEdit;
         private System.Windows.Forms.CheckBox chkPermanent;
         private System.Windows.Forms.CheckBox chkEditPermanent;
+        private System.Windows.Forms.Button btnDeletePaperSize;
     }
 }

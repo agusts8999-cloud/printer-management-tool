@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Drawing.Printing;
 using Microsoft.Win32;
@@ -86,14 +87,14 @@ namespace PrinterToolApp
         /// <summary>
         /// Menambahkan ukuran kertas custom secara permanen ke Windows Registry
         /// Memerlukan hak administrator!
-        /// Uses .reg file import method for better reliability
+        /// Uses driver-specific method for 4BARCODE printer
         /// </summary>
         public static bool AddPermanentPaperSize(string paperName, double widthMM, double heightMM)
         {
             // Validasi input
             if (string.IsNullOrWhiteSpace(paperName))
             {
-                throw new ArgumentException("Nama ukuran kertas tidak boleh kosong.");
+                throw new ArgumentException("Nama ukuran kertas tidak valid.");
             }
 
             if (!ValidatePaperSize(widthMM, heightMM))
@@ -103,28 +104,66 @@ namespace PrinterToolApp
 
             try
             {
-                // PRIMARY METHOD: Use .reg file import (more reliable)
-                return AddPermanentPaperSizeViaRegFile(paperName, widthMM, heightMM);
+                // DRIVER-SPECIFIC: For 4BARCODE printer, write to PrinterDriverData\FORMS
+                string printerName = PrinterManager.TARGET_PRINTER_NAME;
+                return Add4BARCODEPaperSize(printerName, paperName, widthMM, heightMM);
             }
-            catch (Exception regFileEx)
+            catch (Exception driverEx)
             {
-                // FALLBACK: Try direct registry access
+                // Fallback to .reg file method if driver-specific fails
                 try
                 {
-                    return AddPermanentPaperSizeDirectRegistry(paperName, widthMM, heightMM);
+                    return AddPermanentPaperSizeViaRegFile(paperName, widthMM, heightMM);
                 }
-                catch (Exception directEx)
+                catch (Exception regFileEx)
                 {
-                    // Both methods failed - throw combined error
+                    // Both methods failed
                     throw new Exception(
                         $"Gagal menambahkan paper size dengan semua metode:\n\n" +
-                        $"Metode 1 (.reg file): {regFileEx.Message}\n\n" +
-                        $"Metode 2 (Direct registry): {directEx.Message}\n\n" +
+                        $"Metode 1 (Driver-specific): {driverEx.Message}\n\n" +
+                        $"Metode 2 (.reg file): {regFileEx.Message}\n\n" +
                         $"Saran:\n" +
-                        $"- Pastikan aplikasi running as Administrator\n" +
-                        $"- Klik 'Yes' pada UAC prompt jika muncul\n" +
-                        $"- Cek antivirus tidak memblokir regedit.exe");
+                        $"- Restart Print Spooler: Restart-Service Spooler\n" +
+                        $"- Pastikan running as Administrator\n" +
+                        $"- Cek printer driver sudah terinstall dengan benar");
                 }
+            }
+        }
+
+        /// <summary>
+        /// Menghapus ukuran kertas custom secara permanen dari Windows Registry
+        /// Memerlukan hak administrator!
+        /// </summary>
+        public static bool DeletePermanentPaperSize(string paperName)
+        {
+            try
+            {
+                // DRIVER-SPECIFIC: For 4BARCODE printer
+                string printerName = PrinterManager.TARGET_PRINTER_NAME;
+                
+                // Try delete from driver storage
+                bool driverDelete = Delete4BARCODEPaperSize(printerName, paperName);
+                
+                // Also try delete from global registry (just in case)
+                bool globalDelete = false;
+                try
+                {
+                    using (RegistryKey formsKey = Registry.LocalMachine.OpenSubKey(FORMS_REGISTRY_PATH, true))
+                    {
+                        if (formsKey != null)
+                        {
+                            formsKey.DeleteSubKey(paperName, false);
+                            globalDelete = true;
+                        }
+                    }
+                }
+                catch { }
+
+                return driverDelete || globalDelete;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Gagal menghapus paper size: {ex.Message}");
             }
         }
 
@@ -256,34 +295,7 @@ namespace PrinterToolApp
             return AddPermanentPaperSize(paperName, widthMM, heightMM);
         }
 
-        /// <summary>
-        /// Hapus ukuran kertas dari registry
-        /// </summary>
-        public static bool DeletePermanentPaperSize(string paperName)
-        {
-            try
-            {
-                using (RegistryKey formsKey = Registry.LocalMachine.OpenSubKey(FORMS_REGISTRY_PATH, true))
-                {
-                    if (formsKey == null)
-                    {
-                        throw new Exception("Tidak dapat membuka registry Forms.");
-                    }
 
-                    formsKey.DeleteSubKey(paperName, false); // false = don't throw if not exists
-                }
-
-                return true;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                throw new Exception("Akses ditolak. Aplikasi harus dijalankan sebagai Administrator.");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"Gagal menghapus ukuran kertas dari registry: {ex.Message}");
-            }
-        }
 
         /// <summary>
         /// Cek apakah paper size sudah ada di registry
@@ -586,5 +598,202 @@ namespace PrinterToolApp
             return widthMM >= MIN_SIZE && widthMM <= MAX_SIZE &&
                    heightMM >= MIN_SIZE && heightMM <= MAX_SIZE;
         }
+
+        #region Driver-Specific Methods for 4BARCODE
+
+        /// <summary>
+        /// DRIVER-SPECIFIC: Add paper size to 4BARCODE PrinterDriverData\FORMS
+        /// This is the CORRECT location for 4BARCODE 4B-2082A driver
+        /// </summary>
+        public static bool Add4BARCODEPaperSize(string printerName, string paperName, double widthMM, double heightMM)
+        {
+            if (!ValidatePaperSize(widthMM, heightMM))
+            {
+                throw new ArgumentException("Ukuran kertas tidak valid.");
+            }
+
+            try
+            {
+                // Convert mm to micrometers (1/1000 mm)
+                int widthMicromm = (int)(widthMM * 1000);
+                int heightMicromm = (int)(heightMM * 1000);
+
+                string registryPath = $@"SYSTEM\CurrentControlSet\Control\Print\Printers\{printerName}\PrinterDriverData";
+
+                using (RegistryKey driverDataKey = Registry.LocalMachine.OpenSubKey(registryPath, true))
+                {
+                    if (driverDataKey == null)
+                    {
+                        throw new Exception($"Tidak dapat membuka registry PrinterDriverData untuk {printerName}");
+                    }
+
+                    // Read existing FORMS binary data
+                    byte[] existingForms = driverDataKey.GetValue("FORMS") as byte[];
+                    if (existingForms == null)
+                    {
+                        throw new Exception("FORMS data tidak ditemukan di registry driver");
+                    }
+
+                    // Extract template tail from the first entry (skip 4 byte header + 72 bytes data)
+                    byte[] templateTail = new byte[40];
+                    if (existingForms.Length >= 116) // 4 header + 112 entry
+                    {
+                        // Copy last 40 bytes of the first entry (offset 4 + 72 = 76)
+                        System.Buffer.BlockCopy(existingForms, 76, templateTail, 0, 40);
+                    }
+
+                    // Create new form entry
+                    byte[] newFormEntry = Create4BARCODEFormEntry(paperName, widthMicromm, heightMicromm, templateTail);
+
+                    // Append new form to existing forms
+                    byte[] updatedForms = new byte[existingForms.Length + newFormEntry.Length];
+                    System.Buffer.BlockCopy(existingForms, 0, updatedForms, 0, existingForms.Length);
+                    System.Buffer.BlockCopy(newFormEntry, 0, updatedForms, existingForms.Length, newFormEntry.Length);
+
+                    // Write back to registry
+                    driverDataKey.SetValue("FORMS", updatedForms, RegistryValueKind.Binary);
+
+                    // Also update InstalledForm (using simplified structure)
+                    UpdateInstalledForm(driverDataKey, paperName, widthMicromm, heightMicromm);
+
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Gagal menambahkan paper size ke driver 4BARCODE:\n{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Create binary entry for 4BARCODE FORMS structure
+        /// Corrected structure based on analysis:
+        /// - Global Header: 4 bytes (skipped in entry creation)
+        /// - Entry Size: 112 bytes
+        /// - Name: Offset 0 (64 bytes)
+        /// - Width: Offset 64 (4 bytes)
+        /// - Height: Offset 68 (4 bytes)
+        /// - Padding/Flags: Offset 72 (40 bytes)
+        /// </summary>
+        private static byte[] Create4BARCODEFormEntry(string paperName, int widthMicromm, int heightMicromm, byte[] templateTail)
+        {
+            byte[] entry = new byte[112];
+
+            // Write paper name as Unicode (first 64 bytes)
+            byte[] nameBytes = System.Text.Encoding.Unicode.GetBytes(paperName);
+            int nameCopyLength = Math.Min(nameBytes.Length, 64);
+            System.Buffer.BlockCopy(nameBytes, 0, entry, 0, nameCopyLength);
+
+            // Write width at offset 64
+            byte[] widthBytes = BitConverter.GetBytes(widthMicromm);
+            System.Buffer.BlockCopy(widthBytes, 0, entry, 64, 4);
+
+            // Write height at offset 68
+            byte[] heightBytes = BitConverter.GetBytes(heightMicromm);
+            System.Buffer.BlockCopy(heightBytes, 0, entry, 68, 4);
+
+            // Copy tail (flags/padding) from template if available
+            if (templateTail != null && templateTail.Length >= 40)
+            {
+                System.Buffer.BlockCopy(templateTail, 0, entry, 72, 40);
+            }
+            else
+            {
+                // Default flags if template not found (from observation)
+                // 01 00 00 80 D0 07 00 00 ...
+                entry[96] = 0x01;
+                entry[99] = 0x80;
+                entry[100] = 0xD0;
+                entry[101] = 0x07;
+            }
+
+            return entry;
+        }
+
+        /// <summary>
+        /// Update InstalledForm registry value
+        /// </summary>
+        private static void UpdateInstalledForm(RegistryKey driverDataKey, string paperName, int widthMicromm, int heightMicromm)
+        {
+            try
+            {
+                // InstalledForm should match the FORMS entry structure (112 bytes)
+                // Previously was 80 bytes, which might cause mismatch issues
+                byte[] installedFormEntry = Create4BARCODEFormEntry(paperName, widthMicromm, heightMicromm, null);
+                driverDataKey.SetValue("InstalledForm", installedFormEntry, RegistryValueKind.Binary);
+            }
+            catch
+            {
+                // Non-critical
+            }
+        }
+
+        /// <summary>
+        /// DRIVER-SPECIFIC: Delete paper size from 4BARCODE PrinterDriverData\FORMS
+        /// </summary>
+        public static bool Delete4BARCODEPaperSize(string printerName, string paperName)
+        {
+            try
+            {
+                string registryPath = $@"SYSTEM\CurrentControlSet\Control\Print\Printers\{printerName}\PrinterDriverData";
+
+                using (RegistryKey driverDataKey = Registry.LocalMachine.OpenSubKey(registryPath, true))
+                {
+                    if (driverDataKey == null) return false;
+
+                    byte[] existingForms = driverDataKey.GetValue("FORMS") as byte[];
+                    if (existingForms == null || existingForms.Length < 4) return false;
+
+                    // Header is 4 bytes
+                    int entrySize = 112;
+                    int headerSize = 4;
+                    
+                    // Create list to hold kept forms
+                    List<byte> keptForms = new List<byte>();
+                    
+                    // Keep header
+                    for (int i = 0; i < headerSize; i++) keptForms.Add(existingForms[i]);
+
+                    // Iterate through entries
+                    int totalEntries = (existingForms.Length - headerSize) / entrySize;
+                    bool found = false;
+
+                    for (int i = 0; i < totalEntries; i++)
+                    {
+                        int offset = headerSize + (i * entrySize);
+                        
+                        // Read name (first 64 bytes)
+                        string entryName = System.Text.Encoding.Unicode.GetString(existingForms, offset, 64).TrimEnd('\0');
+
+                        if (entryName.Equals(paperName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            found = true;
+                            continue; // Skip this entry (delete it)
+                        }
+
+                        // Keep this entry
+                        for (int j = 0; j < entrySize; j++)
+                        {
+                            keptForms.Add(existingForms[offset + j]);
+                        }
+                    }
+
+                    if (found)
+                    {
+                        // Write back to registry
+                        driverDataKey.SetValue("FORMS", keptForms.ToArray(), RegistryValueKind.Binary);
+                        return true;
+                    }
+
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Gagal menghapus paper size dari driver: {ex.Message}");
+            }
+        }
+
+        #endregion
     }
 }
